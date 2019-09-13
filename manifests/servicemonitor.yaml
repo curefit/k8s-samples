@@ -1,0 +1,21 @@
+{{- if eq .Values.metrics.enabled true }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ template "name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+  - path: {{ default "/metrics" .Values.metrics.path | quote}}
+    port: {{ .Values.metrics.port | quote}}
+    interval: {{ default "30s" .Values.metrics.interval | quote}}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ template "name" . }}
+      service-type: metrics
+{{- end }}

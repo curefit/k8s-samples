@@ -1,0 +1,20 @@
+{{- if eq .Values.metrics.enabled true }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "name" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    service-type: metrics
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.metrics.port }}
+    targetPort: {{ .Values.metrics.port }}
+    protocol: TCP
+    name: {{ .Values.metrics.port | quote }}
+  selector:
+    app: {{ template "name" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

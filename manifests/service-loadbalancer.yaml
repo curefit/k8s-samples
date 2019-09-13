@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "name" . }}-lb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+{{- range $p := .Values.service.expose }}
+{{- if eq .type "loadbalancer" }}
+{{- if .annotations }}
+  annotations:
+{{ toYaml .annotations | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+{{- range $p := .Values.service.expose }}
+{{- if eq .type "loadbalancer" }}
+  - port: {{ .externalPort }}
+    targetPort: {{ .internalPort }}
+    protocol: TCP
+    name: {{ .externalPort | quote }}
+{{- end }}
+{{- end }}
+  selector:
+    app: {{ template "name" . }}
+    namespace: {{ .Release.Namespace }}

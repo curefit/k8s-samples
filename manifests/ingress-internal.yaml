@@ -1,0 +1,25 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ template "name" . }}-internal-elb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "name" . }}
+    chart: {{ template "chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  annotations:
+{{ toYaml .Values.ingress.annotations.internal | indent 4 }}
+spec:
+  rules:
+    - host:  {{ .Values.ingress.exposeName }}.{{ template "internal-domain" . }}
+  {{- range $p := .Values.service.expose }}
+  {{- if eq .type "internal" }}
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: app-name-internal
+              servicePort: {{ .externalPort }}
+  {{- end -}}
+  {{- end -}}

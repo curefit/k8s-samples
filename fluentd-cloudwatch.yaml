@@ -1,0 +1,120 @@
+image:
+  repository: fluent/fluentd-kubernetes-daemonset
+  tag: v1.3.3-debian-cloudwatch-1.0
+## Specify an imagePullPolicy (Required)
+## It's recommended to change this to 'Always' if the image tag is 'latest'
+## ref: http://kubernetes.io/docs/user-guide/images/#updating-images
+  pullPolicy: IfNotPresent
+
+## Configure resource requests and limits
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+resources:
+  limits:
+    cpu: 300m
+    memory: 400Mi
+  requests:
+    cpu: 100m
+    memory: 100Mi
+
+# hostNetwork: false
+
+## Node labels for pod assignment
+## Ref: https://kubernetes.io/docs/user-guide/node-selection/
+##
+nodeSelector: {}
+  # kubernetes.io/role: node
+# Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#affinity-v1-core
+# Expects input structure as per specification for example:
+#   affinity:
+#     nodeAffinity:
+#      requiredDuringSchedulingIgnoredDuringExecution:
+#        nodeSelectorTerms:
+#        - matchExpressions:
+#          - key: foo.bar.com/role
+#            operator: In
+#            values:
+#            - master
+affinity: {}
+## Add tolerations if specified
+tolerations: []
+#   - key: node-role.kubernetes.io/master
+#     operator: Exists
+#     effect: NoSchedule
+
+podSecurityContext: {}
+
+podAnnotations:
+    priorityClassName: system-cluster-critical
+
+awsRegion: ap-south-1
+awsRole: 
+awsAccessKeyId:
+awsSecretAccessKey:
+logGroupName: kubernetes
+
+rbac:
+  ## If true, create and use RBAC resources
+  create: true
+
+  ## Ignored if rbac.create is true
+  serviceAccountName: fluentd-cloudwatch
+# Add extra environment variables if specified (must be specified as a single line object and be quoted)
+extraVars: []
+# - "{ name: NODE_NAME, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }"
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate: 
+    maxUnavailable: 100%
+
+fluentdConfig: |
+    <match fluent.**>
+        @type null
+    </match>
+
+    <source>
+        @type tail
+        enable_stat_watcher false
+        path /logs/*/*.log
+        pos_file /var/log/fluentd-containers.log.pos
+        tag "*-#{ENV['POD_NAME']}-#{ENV['NODE_NAME']}"
+        read_from_head true
+        emit_unmatched_lines true
+        <parse>
+        @type multi_format
+          <pattern>
+            format json
+            time_format %Y-%m-%dT%H:%M:%S.%NZ
+          </pattern>
+          <pattern>
+            format none
+          </pattern>
+        </parse>
+    </source>
+
+    <filter **>
+       @type record_transformer
+       @id filter_containers_stream_transformer
+       <record>
+        stream_name ${tag_suffix[2]}
+       </record>
+    </filter>
+
+    <match **>
+        @type cloudwatch_logs
+        log_group_name "/k8s/#{ENV['POD_NAMESPACE']}"
+        log_stream_name_key stream_name
+        remove_log_stream_name_key true
+        auto_create_stream true
+        retention_in_days 90
+        <buffer>
+        flush_interval 30s
+        flush_thread_count 2
+        chunk_limit_size 2m
+        queued_chunks_limit_size 32
+        retry_forever true
+        retry_type periodic
+        retry_wait 15s
+        </buffer>
+    </match>

@@ -1,0 +1,25 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ template "name" . }}-external
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "name" . }}
+    chart: {{ template "chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  annotations:
+{{ toYaml .Values.ingress.annotations.external | indent 4 }}
+spec:
+  rules:
+    - host:  {{ .Values.ingress.exposeName }}.{{ template "domain" . }}
+  {{- range $p := .Values.service.expose }}
+  {{- if eq .type "external" }}
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: app-name-external
+              servicePort: {{ .externalPort }}
+  {{- end -}}
+  {{- end -}}

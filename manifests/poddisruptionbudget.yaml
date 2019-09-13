@@ -1,0 +1,15 @@
+{{- if contains "prod" .Release.Namespace  }}
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ template "name" . }}-pdb
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    strategy.spinnaker.io/recreate: "true"
+spec:
+  minAvailable: {{ default "49%" .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ template "name" . }}
+      namespace: {{ .Release.Namespace }}
+{{- end -}}

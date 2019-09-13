@@ -1,0 +1,162 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ template "name" . }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    strategy.spinnaker.io/use-source-capacity: "true"
+  labels:
+    app: {{ template "name" . }}
+    namespace: {{ .Release.Namespace }}
+    draft: {{ default "draft-app" .Values.draft }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+spec:
+  revisionHistoryLimit: 10
+  strategy:
+    rollingUpdate:
+      maxSurge: {{ default "50%" .Values.maxSurge }}
+      maxUnavailable: {{ default "30%" .Values.maxUnavailable }}
+    type: RollingUpdate
+  replicas: {{ default "1" .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "name" . }}
+      namespace: {{ .Release.Namespace }}
+  template:
+    metadata:
+      labels:
+        draft: {{ default "draft-app" .Values.draft }}
+        app: {{ template "name" . }}
+        namespace: {{ .Release.Namespace }}
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{- end }}
+    spec:
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: config-volume
+          configMap:
+            name: fluentd-cloudwatch
+            defaultMode: 420
+        - name: applogs
+          emptyDir: {}
+      initContainers:
+      - name: copy-fluentd-config
+        image: busybox
+        command:
+        - sh
+        - "-c"
+        - cp /config-volume/* /etc/fluentd
+        resources: {}
+        volumeMounts:
+        - name: config-volume
+          mountPath: "/config-volume"
+        - name: config
+          mountPath: "/etc/fluentd"
+        terminationMessagePath: "/dev/termination.log"
+        terminationMessagePolicy: File
+        imagePullPolicy: Always
+      affinity:
+        {{- if .Values.nodeAffinity }}
+        nodeAffinity:
+        {{- "\n"}}{{ toYaml .Values.nodeAffinity | indent 10}}
+        {{- end }}
+        {{- if .Values.podAntiAffinity }}
+        podAntiAffinity:
+        {{- "\n"}}{{ toYaml .Values.podAntiAffinity | indent 10}}
+        {{- end }}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        lifecycle:                   
+          preStop:                   
+            exec:                    
+              command:               
+              - sh
+              - -c
+              - "{{ default "echo Done" .Values.preStopCommand}} && sleep {{ default 120 .Values.drainTime }}"
+        env:
+        {{- range $p := .Values.env}}
+        - name: {{ .name | quote}}
+          value: {{ .value | quote}}
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        terminationMessagePath: "/logs/app-name/termination.log"
+        terminationMessagePolicy: "FallbackToLogsOnError"
+        volumeMounts:
+        - name: applogs
+          mountPath: /logs/app-name
+        ports:
+        {{- range $p := .Values.service.expose }}
+        - containerPort: {{ .internalPort }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: {{ default "/status" .Values.probePath }}
+            port: {{ .Values.probePort }}
+          initialDelaySeconds: {{ default "60" .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ default "20" .Values.livenessProbe.periodSeconds }}
+          successThreshold: {{ default "1" .Values.livenessProbe.successThreshold }}
+          timeoutSeconds: {{ default "1" .Values.livenessProbe.timeoutSeconds }}
+        readinessProbe:
+          httpGet:
+            path: {{ default "/status" .Values.probePath }}
+            port: {{ .Values.probePort }}
+          initialDelaySeconds: {{ default "60" .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ default "15" .Values.readinessProbe.periodSeconds }}
+          successThreshold: {{ default "1"  .Values.readinessProbe.successThreshold }}
+          timeoutSeconds: {{ default "1" .Values.readinessProbe.timeoutSeconds }}
+        resources:
+{{ toYaml .Values.resources | indent 12 }}
+      - name: fluentd-cloudwatch
+        image: fluent/fluentd-kubernetes-daemonset:v1.3.3-debian-cloudwatch-1.4
+        lifecycle:                   
+          preStop:                   
+            exec:                    
+              command:               
+              - sh
+              - -c
+              - "sleep {{ default 120 .Values.drainTime }}"
+        env:
+        - name: AWS_REGION
+          value: ap-south-1
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - name: config
+          mountPath: "/fluentd/etc"
+        - name: applogs
+          mountPath: /logs/app-name
+          readOnly: true
+        terminationMessagePath: "/dev/termination.log"
+        terminationMessagePolicy: "FallbackToLogsOnError"
+        imagePullPolicy: IfNotPresent
+      terminationGracePeriodSeconds: {{ default "300" .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}

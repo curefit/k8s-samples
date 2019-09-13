@@ -1,0 +1,60 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: fluentd-cloudwatch
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: fluentd-cloudwatch
+    chart: fluentd-cloudwatch-0.7.1
+    release: fluentd-cloudwatch
+data:
+  fluent.conf: |
+    <match fluent.**>
+        @type null
+    </match>
+
+    <source>
+        @type tail
+        enable_stat_watcher false
+        path /logs/*/*.log
+        pos_file /var/log/fluentd-containers.log.pos
+        tag "*-#{ENV['POD_NAME']}-#{ENV['NODE_NAME']}"
+        read_from_head true
+        emit_unmatched_lines true
+        <parse>
+        @type multi_format
+          <pattern>
+            format json
+            time_format %Y-%m-%dT%H:%M:%S.%NZ
+          </pattern>
+          <pattern>
+            format none
+          </pattern>
+        </parse>
+    </source>
+
+    <filter **>
+       @type record_transformer
+       @id filter_containers_stream_transformer
+       <record>
+        stream_name ${tag_suffix[2]}
+       </record>
+    </filter>
+
+    <match **>
+        @type cloudwatch_logs
+        log_group_name "/k8s/#{ENV['POD_NAMESPACE']}"
+        log_stream_name_key stream_name
+        remove_log_stream_name_key true
+        auto_create_stream true
+        retention_in_days 90
+        <buffer>
+        flush_interval 30s
+        flush_thread_count 2
+        chunk_limit_size 2m
+        queued_chunks_limit_size 32
+        retry_forever true
+        retry_type periodic
+        retry_wait 15s
+        </buffer>
+    </match>
